@@ -1,0 +1,26 @@
+{
+  "name": "nubimed-ghl-integration",
+  "version": "1.0.0",
+  "description": "Webhook receiver for Nubimed to GHL integration with smart filtering",
+  "main": "api/index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "node api/index.js"
+  },
+  "keywords": [
+    "nubimed",
+    "gohighlevel",
+    "webhook",
+    "integration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "vercel": "^33.0.0"
+  }
+}
+
