@@ -34,21 +34,30 @@ function formatDateForGHL(date) {
 }
 
 function extractPatientData(payload) {
-  const appointment = payload.appointment || payload;
-  const patient = appointment.patient || payload.patient || {};
+  const data = payload.data || payload;
+  const booking = data.booking || payload.appointment || payload;
+  
+  let patient = {};
+  if (data.patients && Array.isArray(data.patients) && data.patients.length > 0) {
+    patient = data.patients[0];
+  } else {
+    patient = booking.patient || payload.patient || {};
+  }
   
   const phone = formatPhone(
     patient.phone || 
     payload.patient_phone || 
     payload.phone ||
-    appointment.phone
+    booking.phone ||
+    data.phone
   );
   
   const email = 
     patient.email || 
     payload.patient_email || 
     payload.email ||
-    appointment.email ||
+    booking.email ||
+    data.email ||
     null;
   
   const firstName = 
@@ -57,20 +66,28 @@ function extractPatientData(payload) {
     payload.patient_name ||
     payload.firstName ||
     payload.name ||
+    booking.patient_name ||
     '';
   
   const lastName = 
+    patient.surname || 
     patient.lastName || 
     patient.last_name ||
     payload.patient_lastName ||
     payload.lastName ||
+    booking.patient_lastName ||
     '';
   
   const appointmentDate = formatDateForGHL(
-    appointment.date || 
-    appointment.datetime || 
+    booking.start_at || 
+    booking.startAt ||
+    data.start_at ||
+    data.startAt ||
+    booking.date || 
+    booking.datetime || 
     payload.date ||
-    payload.datetime
+    payload.datetime ||
+    data.date
   );
   
   return {
