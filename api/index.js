@@ -54,12 +54,24 @@ app.post('/webhook/nubimed', async (req, res) => {
           try {
             // Parse JSON string
             const parsedData = JSON.parse(payload.data);
-            // Reconstruct: { name: "...", data: {...} }
+            // Reconstruct payload structure: { name: "...", data: {...} }
+            // parsedData should already contain: center, doctor, booking, etc.
             payload = {
               name: payload.name || parsedData.name,
               data: parsedData
             };
+            
+            logWebhook('FORM_DATA_PARSED', {
+              name: payload.name,
+              hasBooking: !!parsedData.booking,
+              hasPatients: !!(parsedData.booking && parsedData.booking.patients),
+              sampleData: JSON.stringify(payload).substring(0, 300)
+            });
           } catch (parseError) {
+            logError('FORM_DATA_PARSE_ERROR', {
+              error: parseError.message,
+              dataField: payload.data.substring(0, 200)
+            });
             // Not JSON, use as-is
             payload = {
               name: payload.name,

@@ -1,4 +1,5 @@
-const { logError, logSuccess, logWarning } = require('../utils/logger');
+const logger = require('../utils/logger');
+const { logError, logSuccess, logWarning } = logger;
 
 const GHL_API_BASE = process.env.GHL_API_BASE || 'https://services.leadconnectorhq.com';
 const GHL_API_TOKEN = process.env.GHL_API_TOKEN;
@@ -37,12 +38,72 @@ function extractPatientData(payload) {
   const data = payload.data || payload;
   const booking = data.booking || payload.appointment || payload;
   
+  // Log structure for debugging
+  logWarning('EXTRACTION_START', {
+    hasData: !!data,
+    hasBooking: !!booking,
+    dataKeys: data ? Object.keys(data) : [],
+    bookingKeys: booking ? Object.keys(booking) : [],
+    hasDataPatients: !!(data && data.patients),
+    hasBookingPatients: !!(booking && booking.patients)
+  });
+  
   let patient = {};
-  if (data.patients && Array.isArray(data.patients) && data.patients.length > 0) {
-    patient = data.patients[0];
-  } else {
-    patient = booking.patient || payload.patient || {};
+  let patientSource = 'none';
+  
+  // Try multiple possible locations for patient data
+  // PRIORITY 1: data.booking.patients[] (array inside booking - THIS IS THE ACTUAL STRUCTURE)
+  // This is the most common structure from Nubimed
+  if (booking && booking.patients && Array.isArray(booking.patients) && booking.patients.length > 0) {
+    patient = booking.patients[0];
+    patientSource = 'booking.patients[0]';
+    logWarning('FOUND_PATIENT_IN_BOOKING', {
+      patientKeys: Object.keys(patient),
+      phone: patient.phone,
+      email: patient.email,
+      patientId: patient.id
+    });
   }
+  // PRIORITY 2: data.patients[] (array at data level)
+  else if (data.patients && Array.isArray(data.patients) && data.patients.length > 0) {
+    patient = data.patients[0];
+    patientSource = 'data.patients[0]';
+  }
+  // PRIORITY 3: booking.patient (single object)
+  else if (booking && booking.patient) {
+    patient = booking.patient;
+    patientSource = 'booking.patient';
+  }
+  // PRIORITY 4: payload.patient (fallback)
+  else {
+    patient = payload.patient || {};
+    patientSource = 'payload.patient';
+    logWarning('NO_PATIENT_FOUND', {
+      hasBooking: !!booking,
+      hasData: !!data,
+      bookingKeys: booking ? Object.keys(booking) : [],
+      dataKeys: data ? Object.keys(data) : []
+    });
+  }
+  
+  // Log patient extraction for debugging
+  logWarning('PATIENT_EXTRACTION', {
+    patientSource,
+    hasPatient: !!patient && Object.keys(patient).length > 0,
+    patientKeys: patient ? Object.keys(patient) : [],
+    hasPhone: !!patient.phone,
+    hasEmail: !!patient.email,
+    phone: patient.phone,
+    email: patient.email,
+    rawPhone: patient.phone,
+    rawEmail: patient.email,
+    hasBookingPatients: !!(booking && booking.patients),
+    hasDataPatients: !!(data && data.patients),
+    bookingKeys: booking ? Object.keys(booking) : [],
+    dataKeys: data ? Object.keys(data) : [],
+    bookingPatientsLength: booking && booking.patients ? booking.patients.length : 0,
+    dataPatientsLength: data && data.patients ? data.patients.length : 0
+  });
   
   const phone = formatPhone(
     patient.phone || 
@@ -90,6 +151,17 @@ function extractPatientData(payload) {
     data.date
   );
   
+  // Log final extracted values for debugging
+  logWarning('EXTRACTED_PATIENT_DATA', {
+    phone: phone || 'NULL',
+    email: email || 'NULL',
+    firstName: firstName || 'NULL',
+    lastName: lastName || 'NULL',
+    appointmentDate: appointmentDate || 'NULL',
+    patientSource,
+    patientObject: JSON.stringify(patient).substring(0, 200)
+  });
+  
   return {
     phone,
     email,
@@ -107,7 +179,22 @@ async function syncToGHL(nubimedPayload) {
 
     const patientData = extractPatientData(nubimedPayload);
     
+    // Log extracted data for debugging
+    logWarning('PATIENT_DATA_EXTRACTED', {
+      phone: patientData.phone,
+      email: patientData.email,
+      firstName: patientData.firstName,
+      lastName: patientData.lastName,
+      appointmentDate: patientData.appointmentDate,
+      hasPhone: !!patientData.phone,
+      hasEmail: !!patientData.email
+    });
+    
     if (!patientData.phone && !patientData.email) {
+      logError('MISSING_CONTACT_INFO', {
+        patientData,
+        payload: JSON.stringify(nubimedPayload).substring(0, 500)
+      });
       throw new Error('Phone or email is required to sync contact');
     }
     
