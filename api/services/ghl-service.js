@@ -214,9 +214,16 @@ async function syncToGHL(nubimedPayload) {
       firstName: patientData.firstName,
       lastName: patientData.lastName,
       source: 'Nubimed',
-      customField: {
-        fecha_ultima_cita_t: patientData.appointmentDate
-      },
+      customField: [
+        {
+          id: "SogU2vTkISpnltBjY2K8",
+          value: patientData.appointmentDate
+        },
+        {
+          id: "VK7oRWrcyv0MtiLY0MJq",
+          value: patientData.appointmentDate
+        }
+      ],
       tags: ['nubimed contact']
     };
 
