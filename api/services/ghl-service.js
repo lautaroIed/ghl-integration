@@ -177,6 +177,10 @@ async function syncToGHL(nubimedPayload) {
       throw new Error('GHL_API_TOKEN environment variable is required');
     }
 
+    if (!GHL_LOCATION_ID) {
+      throw new Error('GHL_LOCATION_ID environment variable is required');
+    }
+
     const patientData = extractPatientData(nubimedPayload);
     
     // Log extracted data for debugging
@@ -187,7 +191,8 @@ async function syncToGHL(nubimedPayload) {
       lastName: patientData.lastName,
       appointmentDate: patientData.appointmentDate,
       hasPhone: !!patientData.phone,
-      hasEmail: !!patientData.email
+      hasEmail: !!patientData.email,
+      locationId: GHL_LOCATION_ID
     });
     
     if (!patientData.phone && !patientData.email) {
@@ -203,6 +208,7 @@ async function syncToGHL(nubimedPayload) {
     }
 
     const contactData = {
+      locationId: GHL_LOCATION_ID,
       phone: patientData.phone,
       email: patientData.email,
       firstName: patientData.firstName,
