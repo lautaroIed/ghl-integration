@@ -207,6 +207,21 @@ async function syncToGHL(nubimedPayload) {
       throw new Error('Appointment date is required');
     }
 
+    // Build custom fields object using fieldKey (without "contact." prefix)
+    // According to GHL API docs, custom fields use fieldKey as property name
+    // From customfields.json:
+    // - fecha_ultima_cita_T: fieldKey "contact.fecha_ultima_cita_t" -> use "fecha_ultima_cita_t"
+    // - fecha_ultima_cita: fieldKey "contact.fecha_ultima_cita" -> use "fecha_ultima_cita"
+    const customFields = {};
+    
+    if (patientData.appointmentDate) {
+      // Update fecha_ultima_cita_T (TEXT field) - the one used in workflows
+      customFields.fecha_ultima_cita_t = patientData.appointmentDate;
+      
+      // Also update fecha_ultima_cita (DATE field) for consistency
+      customFields.fecha_ultima_cita = patientData.appointmentDate;
+    }
+
     const contactData = {
       locationId: GHL_LOCATION_ID,
       phone: patientData.phone,
@@ -214,25 +229,18 @@ async function syncToGHL(nubimedPayload) {
       firstName: patientData.firstName,
       lastName: patientData.lastName,
       source: 'Nubimed',
-      customField: [
-        {
-          id: "SogU2vTkISpnltBjY2K8",
-          value: patientData.appointmentDate
-        },
-        {
-          id: "VK7oRWrcyv0MtiLY0MJq",
-          value: patientData.appointmentDate
-        }
-      ],
+      customField: Object.keys(customFields).length > 0 ? customFields : undefined,
       tags: ['nubimed contact']
     };
 
+    // Clean up null/undefined fields
     Object.keys(contactData).forEach(key => {
       if (contactData[key] === undefined || contactData[key] === null) {
         delete contactData[key];
       }
     });
-
+    
+    // Clean up customField object if empty
     if (contactData.customField) {
       Object.keys(contactData.customField).forEach(key => {
         if (contactData.customField[key] === null || contactData.customField[key] === undefined) {
