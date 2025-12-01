@@ -207,19 +207,25 @@ async function syncToGHL(nubimedPayload) {
       throw new Error('Appointment date is required');
     }
 
-    // Build custom fields object using fieldKey (without "contact." prefix)
-    // According to GHL API docs, custom fields use fieldKey as property name
+    // Build custom fields array using the correct GHL API format
+    // Format: customFields array with objects containing id and field_value
     // From customfields.json:
-    // - fecha_ultima_cita_T: fieldKey "contact.fecha_ultima_cita_t" -> use "fecha_ultima_cita_t"
-    // - fecha_ultima_cita: fieldKey "contact.fecha_ultima_cita" -> use "fecha_ultima_cita"
-    const customFields = {};
+    // - fecha_ultima_cita_T: id "VK7oRWrcyv0MtiLY0MJq" (TEXT field)
+    // - fecha_ultima_cita: id "SogU2vTkISpnltBjY2K8" (DATE field)
+    const customFieldsArray = [];
     
     if (patientData.appointmentDate) {
       // Update fecha_ultima_cita_T (TEXT field) - the one used in workflows
-      customFields.fecha_ultima_cita_t = patientData.appointmentDate;
+      customFieldsArray.push({
+        id: "VK7oRWrcyv0MtiLY0MJq",
+        field_value: patientData.appointmentDate
+      });
       
       // Also update fecha_ultima_cita (DATE field) for consistency
-      customFields.fecha_ultima_cita = patientData.appointmentDate;
+      customFieldsArray.push({
+        id: "SogU2vTkISpnltBjY2K8",
+        field_value: patientData.appointmentDate
+      });
     }
 
     const contactData = {
@@ -229,7 +235,7 @@ async function syncToGHL(nubimedPayload) {
       firstName: patientData.firstName,
       lastName: patientData.lastName,
       source: 'Nubimed',
-      customField: Object.keys(customFields).length > 0 ? customFields : undefined,
+      customFields: customFieldsArray.length > 0 ? customFieldsArray : undefined,
       tags: ['nubimed contact']
     };
 
@@ -240,17 +246,9 @@ async function syncToGHL(nubimedPayload) {
       }
     });
     
-    // Clean up customField object if empty
-    if (contactData.customField) {
-      Object.keys(contactData.customField).forEach(key => {
-        if (contactData.customField[key] === null || contactData.customField[key] === undefined) {
-          delete contactData.customField[key];
-        }
-      });
-      
-      if (Object.keys(contactData.customField).length === 0) {
-        delete contactData.customField;
-      }
+    // Clean up customFields array if empty
+    if (contactData.customFields && contactData.customFields.length === 0) {
+      delete contactData.customFields;
     }
 
     logSuccess('SYNC_ATTEMPT', {
