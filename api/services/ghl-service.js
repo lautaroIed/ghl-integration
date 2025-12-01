@@ -19,19 +19,23 @@ function formatPhone(phone) {
 
 function formatDateForGHL(date) {
   if (!date) return null;
-  
-  try {
-    const dateObj = new Date(date);
-    
-    if (isNaN(dateObj.getTime())) {
-      throw new Error(`Invalid date format: ${date}`);
-    }
-    
-    return dateObj.toISOString();
-  } catch (error) {
-    logError('DATE_FORMAT_ERROR', { date, error: error.message });
-    return null;
-  }
+
+  const d = new Date(date);
+  if (isNaN(d)) return null;
+
+  // Convert to Spain local time
+  const madrid = new Date(
+    d.toLocaleString("en-US", { timeZone: "Europe/Madrid" })
+  );
+
+  const day = String(madrid.getDate()).padStart(2, "0");
+  const month = String(madrid.getMonth() + 1).padStart(2, "0");
+  const year = madrid.getFullYear();
+
+  const hour = String(madrid.getHours()).padStart(2, "0");
+  const minute = String(madrid.getMinutes()).padStart(2, "0");
+
+  return `${day}/${month}/${year} a las ${hour}:${minute}`;
 }
 
 function extractPatientData(payload) {
