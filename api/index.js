@@ -1,19 +1,20 @@
 const express = require('express');
 const app = express();
 
-// Configure JSON parser with more lenient options
+// Support multiple content types
+// JSON parser
 app.use(express.json({ 
   limit: '10mb',
-  strict: false,
-  verify: (req, res, buf) => {
-    // Log raw body for debugging
-    if (process.env.DEBUG === 'true') {
-      console.log('Raw body:', buf.toString());
-    }
-  }
+  strict: false
 }));
 
-// Add raw body parser as fallback
+// Form-encoded parser (for application/x-www-form-urlencoded)
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb' 
+}));
+
+// Raw body parser as fallback
 app.use(express.raw({ type: 'application/json', limit: '10mb' }));
 
 const { logWebhook, logError, logSuccess } = require('./utils/logger');
@@ -32,34 +33,85 @@ app.post('/webhook/nubimed', async (req, res) => {
   const timestamp = new Date().toISOString();
   let payload = req.body;
   const headers = req.headers;
+  const contentType = headers['content-type'] || '';
 
   try {
-    // Handle cases where body might be a Buffer or string
-    if (Buffer.isBuffer(payload)) {
-      try {
-        payload = JSON.parse(payload.toString());
-      } catch (parseError) {
-        logError('JSON_PARSE_ERROR', { 
-          error: parseError.message,
-          rawBody: payload.toString().substring(0, 500)
-        });
-        return res.status(400).json({
-          status: 'error',
-          message: 'Invalid JSON format'
+    // Handle form-encoded data (application/x-www-form-urlencoded)
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      logWebhook('FORM_ENCODED_RECEIVED', {
+        formFields: Object.keys(payload),
+        contentType,
+        samplePayload: JSON.stringify(payload).substring(0, 500)
+      });
+      
+      // Make sends form-encoded with fields like:
+      // - data: main data object (may be JSON string or object)
+      // - name: event name (separate field)
+      
+      // If 'data' field exists, parse it
+      if (payload.data) {
+        if (typeof payload.data === 'string') {
+          try {
+            // Parse JSON string
+            const parsedData = JSON.parse(payload.data);
+            // Reconstruct: { name: "...", data: {...} }
+            payload = {
+              name: payload.name || parsedData.name,
+              data: parsedData
+            };
+          } catch (parseError) {
+            // Not JSON, use as-is
+            payload = {
+              name: payload.name,
+              data: payload.data
+            };
+          }
+        } else {
+          // Data is already an object
+          payload = {
+            name: payload.name,
+            data: payload.data
+          };
+        }
+      }
+      // If no 'data' field, form fields might contain the structure directly
+      // In that case, use payload as-is but log it
+      else {
+        logWebhook('FORM_DATA_NO_DATA_FIELD', {
+          payloadKeys: Object.keys(payload),
+          payload
         });
       }
-    } else if (typeof payload === 'string') {
-      try {
-        payload = JSON.parse(payload);
-      } catch (parseError) {
-        logError('JSON_PARSE_ERROR', { 
-          error: parseError.message,
-          rawBody: payload.substring(0, 500)
-        });
-        return res.status(400).json({
-          status: 'error',
-          message: 'Invalid JSON format'
-        });
+    }
+    // Handle JSON data
+    else if (contentType.includes('application/json')) {
+      // Handle cases where body might be a Buffer or string
+      if (Buffer.isBuffer(payload)) {
+        try {
+          payload = JSON.parse(payload.toString());
+        } catch (parseError) {
+          logError('JSON_PARSE_ERROR', { 
+            error: parseError.message,
+            rawBody: payload.toString().substring(0, 500)
+          });
+          return res.status(400).json({
+            status: 'error',
+            message: 'Invalid JSON format'
+          });
+        }
+      } else if (typeof payload === 'string') {
+        try {
+          payload = JSON.parse(payload);
+        } catch (parseError) {
+          logError('JSON_PARSE_ERROR', { 
+            error: parseError.message,
+            rawBody: payload.substring(0, 500)
+          });
+          return res.status(400).json({
+            status: 'error',
+            message: 'Invalid JSON format'
+          });
+        }
       }
     }
 
