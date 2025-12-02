@@ -17,7 +17,8 @@ function formatPhone(phone) {
   return cleaned || null;
 }
 
-function formatDateForGHL(date) {
+// Format date for TEXT field (human-readable format)
+function formatDateForText(date) {
   if (!date) return null;
 
   const d = new Date(date);
@@ -36,6 +37,31 @@ function formatDateForGHL(date) {
   const minute = String(madrid.getMinutes()).padStart(2, "0");
 
   return `${day}/${month}/${year} a las ${hour}:${minute}`;
+}
+
+// Format date for DATE field (ISO format: YYYY-MM-DD)
+function formatDateForDateField(date) {
+  if (!date) return null;
+
+  const d = new Date(date);
+  if (isNaN(d)) return null;
+
+  // Convert to Spain local time
+  const madrid = new Date(
+    d.toLocaleString("en-US", { timeZone: "Europe/Madrid" })
+  );
+
+  const day = String(madrid.getDate()).padStart(2, "0");
+  const month = String(madrid.getMonth() + 1).padStart(2, "0");
+  const year = madrid.getFullYear();
+
+  // Return ISO date format: YYYY-MM-DD
+  return `${year}-${month}-${day}`;
+}
+
+// Backward compatibility - use text format by default
+function formatDateForGHL(date) {
+  return formatDateForText(date);
 }
 
 function extractPatientData(payload) {
@@ -143,7 +169,8 @@ function extractPatientData(payload) {
     booking.patient_lastName ||
     '';
   
-  const appointmentDate = formatDateForGHL(
+  // Get raw appointment date
+  const rawAppointmentDate = 
     booking.start_at || 
     booking.startAt ||
     data.start_at ||
@@ -152,8 +179,13 @@ function extractPatientData(payload) {
     booking.datetime || 
     payload.date ||
     payload.datetime ||
-    data.date
-  );
+    data.date;
+  
+  // Format for TEXT field (human-readable)
+  const appointmentDateText = formatDateForText(rawAppointmentDate);
+  
+  // Format for DATE field (ISO format)
+  const appointmentDateISO = formatDateForDateField(rawAppointmentDate);
   
   // Log final extracted values for debugging
   logWarning('EXTRACTED_PATIENT_DATA', {
@@ -161,7 +193,9 @@ function extractPatientData(payload) {
     email: email || 'NULL',
     firstName: firstName || 'NULL',
     lastName: lastName || 'NULL',
-    appointmentDate: appointmentDate || 'NULL',
+    appointmentDateText: appointmentDateText || 'NULL',
+    appointmentDateISO: appointmentDateISO || 'NULL',
+    rawAppointmentDate: rawAppointmentDate || 'NULL',
     patientSource,
     patientObject: JSON.stringify(patient).substring(0, 200)
   });
@@ -171,7 +205,9 @@ function extractPatientData(payload) {
     email,
     firstName,
     lastName,
-    appointmentDate
+    appointmentDate: appointmentDateText, // For backward compatibility, keep this as text format
+    appointmentDateText, // TEXT field format
+    appointmentDateISO  // DATE field format (ISO: YYYY-MM-DD)
   };
 }
 
@@ -193,7 +229,8 @@ async function syncToGHL(nubimedPayload) {
       email: patientData.email,
       firstName: patientData.firstName,
       lastName: patientData.lastName,
-      appointmentDate: patientData.appointmentDate,
+      appointmentDateText: patientData.appointmentDateText,
+      appointmentDateISO: patientData.appointmentDateISO,
       hasPhone: !!patientData.phone,
       hasEmail: !!patientData.email,
       locationId: GHL_LOCATION_ID
@@ -214,21 +251,23 @@ async function syncToGHL(nubimedPayload) {
     // Build custom fields array using the correct GHL API format
     // Format: customFields array with objects containing id and field_value
     // From customfields.json:
-    // - fecha_ultima_cita_T: id "VK7oRWrcyv0MtiLY0MJq" (TEXT field)
-    // - fecha_ultima_cita: id "SogU2vTkISpnltBjY2K8" (DATE field)
+    // - fecha_ultima_cita_T: id "VK7oRWrcyv0MtiLY0MJq" (TEXT field) - needs human-readable format
+    // - fecha_ultima_cita: id "SogU2vTkISpnltBjY2K8" (DATE field) - needs ISO format (YYYY-MM-DD)
     const customFieldsArray = [];
     
-    if (patientData.appointmentDate) {
-      // Update fecha_ultima_cita_T (TEXT field) - the one used in workflows
+    // TEXT field: Use human-readable format for workflows/messages
+    if (patientData.appointmentDateText) {
       customFieldsArray.push({
-        id: "VK7oRWrcyv0MtiLY0MJq",
-        field_value: patientData.appointmentDate
+        id: "VK7oRWrcyv0MtiLY0MJq", // fecha_ultima_cita_T (TEXT)
+        field_value: patientData.appointmentDateText // "09/12/2025 a las 09:15"
       });
-      
-      // Also update fecha_ultima_cita (DATE field) for consistency
+    }
+    
+    // DATE field: Use ISO format (YYYY-MM-DD) to avoid date parsing errors
+    if (patientData.appointmentDateISO) {
       customFieldsArray.push({
-        id: "SogU2vTkISpnltBjY2K8",
-        field_value: patientData.appointmentDate
+        id: "SogU2vTkISpnltBjY2K8", // fecha_ultima_cita (DATE)
+        field_value: patientData.appointmentDateISO // "2025-12-09"
       });
     }
 
