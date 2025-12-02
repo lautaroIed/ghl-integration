@@ -68,16 +68,6 @@ function extractPatientData(payload) {
   const data = payload.data || payload;
   const booking = data.booking || payload.appointment || payload;
   
-  // Log structure for debugging
-  logWarning('EXTRACTION_START', {
-    hasData: !!data,
-    hasBooking: !!booking,
-    dataKeys: data ? Object.keys(data) : [],
-    bookingKeys: booking ? Object.keys(booking) : [],
-    hasDataPatients: !!(data && data.patients),
-    hasBookingPatients: !!(booking && booking.patients)
-  });
-  
   let patient = {};
   let patientSource = 'none';
   
@@ -115,25 +105,6 @@ function extractPatientData(payload) {
       dataKeys: data ? Object.keys(data) : []
     });
   }
-  
-  // Log patient extraction for debugging
-  logWarning('PATIENT_EXTRACTION', {
-    patientSource,
-    hasPatient: !!patient && Object.keys(patient).length > 0,
-    patientKeys: patient ? Object.keys(patient) : [],
-    hasPhone: !!patient.phone,
-    hasEmail: !!patient.email,
-    phone: patient.phone,
-    email: patient.email,
-    rawPhone: patient.phone,
-    rawEmail: patient.email,
-    hasBookingPatients: !!(booking && booking.patients),
-    hasDataPatients: !!(data && data.patients),
-    bookingKeys: booking ? Object.keys(booking) : [],
-    dataKeys: data ? Object.keys(data) : [],
-    bookingPatientsLength: booking && booking.patients ? booking.patients.length : 0,
-    dataPatientsLength: data && data.patients ? data.patients.length : 0
-  });
   
   const phone = formatPhone(
     patient.phone || 
@@ -187,24 +158,34 @@ function extractPatientData(payload) {
   // Format for DATE field (ISO format)
   const appointmentDateISO = formatDateForDateField(rawAppointmentDate);
   
-  // Log final extracted values for debugging
-  logWarning('EXTRACTED_PATIENT_DATA', {
-    phone: phone || 'NULL',
-    email: email || 'NULL',
-    firstName: firstName || 'NULL',
-    lastName: lastName || 'NULL',
-    appointmentDateText: appointmentDateText || 'NULL',
-    appointmentDateISO: appointmentDateISO || 'NULL',
-    rawAppointmentDate: rawAppointmentDate || 'NULL',
-    patientSource,
-    patientObject: JSON.stringify(patient).substring(0, 200)
-  });
+  // Extract address fields
+  const address = patient.address || booking.address || data.address || '';
+  const city = patient.city || booking.city || data.city || '';
+  const province = patient.province || booking.province || data.province || '';
+  const postalCode = patient.postal_code || patient.postalCode || booking.postal_code || booking.postalCode || data.postal_code || data.postalCode || '';
+  const country = patient.country || booking.country || data.country || 'ES'; // Default to ES for Spain
+  
+  // Extract birth date
+  const birthDate = patient.birth_date || patient.birthDate || booking.birth_date || booking.birthDate || data.birth_date || data.birthDate || null;
+  
+  // Extract additional patient info for custom fields
+  const nin = patient.nin || booking.nin || data.nin || null; // National ID
+  const sex = patient.sex || booking.sex || data.sex || null;
+  
   
   return {
     phone,
     email,
     firstName,
     lastName,
+    address,
+    city,
+    province,
+    postalCode,
+    country,
+    dateOfBirth: birthDate,
+    nin,
+    sex,
     appointmentDate: appointmentDateText, // For backward compatibility, keep this as text format
     appointmentDateText, // TEXT field format
     appointmentDateISO  // DATE field format (ISO: YYYY-MM-DD)
@@ -223,18 +204,6 @@ async function syncToGHL(nubimedPayload) {
 
     const patientData = extractPatientData(nubimedPayload);
     
-    // Log extracted data for debugging
-    logWarning('PATIENT_DATA_EXTRACTED', {
-      phone: patientData.phone,
-      email: patientData.email,
-      firstName: patientData.firstName,
-      lastName: patientData.lastName,
-      appointmentDateText: patientData.appointmentDateText,
-      appointmentDateISO: patientData.appointmentDateISO,
-      hasPhone: !!patientData.phone,
-      hasEmail: !!patientData.email,
-      locationId: GHL_LOCATION_ID
-    });
     
     if (!patientData.phone && !patientData.email) {
       logError('MISSING_CONTACT_INFO', {
@@ -253,13 +222,14 @@ async function syncToGHL(nubimedPayload) {
     // From customfields.json:
     // - fecha_ultima_cita_T: id "VK7oRWrcyv0MtiLY0MJq" (TEXT field) - needs human-readable format
     // - fecha_ultima_cita: id "SogU2vTkISpnltBjY2K8" (DATE field) - needs ISO format (YYYY-MM-DD)
+    // - Rut (NIN): id "rEzf1QqhOgXzBp8bukTc" (TEXT field)
+    // - Sexo: id "8JY1foA1enB0jV3V8mZ1" (TEXT field)
     const customFieldsArray = [];
     
     // TEXT field: Use human-readable format for workflows/messages
     if (patientData.appointmentDateText) {
       customFieldsArray.push({
         id: "VK7oRWrcyv0MtiLY0MJq", // fecha_ultima_cita_T (TEXT)
-        key: "contact.fecha_ultima_cita_t",
         field_value: patientData.appointmentDateText // "09/12/2025 a las 09:15"
       });
     }
@@ -268,11 +238,33 @@ async function syncToGHL(nubimedPayload) {
     if (patientData.appointmentDateISO) {
       customFieldsArray.push({
         id: "SogU2vTkISpnltBjY2K8", // fecha_ultima_cita (DATE)
-        key: "contact.fecha_ultima_cita",
         field_value: patientData.appointmentDateISO // "2025-12-09"
       });
     }
+    
+    // Add NIN (Rut) custom field
+    if (patientData.nin) {
+      customFieldsArray.push({
+        id: "rEzf1QqhOgXzBp8bukTc", // Rut (NIN)
+        field_value: patientData.nin
+      });
+    }
+    
+    // Add Sex custom field (format: convert "sexo_femenino" -> "Mujer", "sexo_masculino" -> "Hombre")
+    if (patientData.sex) {
+      let sexValue = patientData.sex;
+      if (patientData.sex === 'sexo_femenino') {
+        sexValue = 'Mujer';
+      } else if (patientData.sex === 'sexo_masculino') {
+        sexValue = 'Hombre';
+      }
+      customFieldsArray.push({
+        id: "8JY1foA1enB0jV3V8mZ1", // Sexo
+        field_value: sexValue
+      });
+    }
 
+    // Build contact data with all available fields
     const contactData = {
       locationId: GHL_LOCATION_ID,
       phone: patientData.phone,
@@ -283,10 +275,39 @@ async function syncToGHL(nubimedPayload) {
       customFields: customFieldsArray.length > 0 ? customFieldsArray : undefined,
       tags: ['nubimed contact']
     };
+    
+    // Add address fields if available
+    if (patientData.address) {
+      contactData.address1 = patientData.address;
+    }
+    if (patientData.city) {
+      contactData.city = patientData.city;
+    }
+    if (patientData.province) {
+      contactData.state = patientData.province;
+    }
+    if (patientData.postalCode) {
+      contactData.postalCode = patientData.postalCode;
+    }
+    if (patientData.country) {
+      // Convert country name to country code if needed
+      let countryCode = patientData.country;
+      if (patientData.country === 'España' || patientData.country === 'ESPAÑA') {
+        countryCode = 'ES';
+      }
+      contactData.country = countryCode;
+    }
+    
+    // Add date of birth if available (format: YYYY-MM-DD)
+    if (patientData.dateOfBirth) {
+      contactData.dateOfBirth = patientData.dateOfBirth;
+    }
 
-    // Clean up null/undefined fields
+    // Clean up null/undefined/empty fields
     Object.keys(contactData).forEach(key => {
-      if (contactData[key] === undefined || contactData[key] === null) {
+      const value = contactData[key];
+      // Remove if null, undefined, or empty string (except for tags and customFields arrays)
+      if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '' && key !== 'tags')) {
         delete contactData[key];
       }
     });
@@ -294,6 +315,14 @@ async function syncToGHL(nubimedPayload) {
     // Clean up customFields array if empty
     if (contactData.customFields && contactData.customFields.length === 0) {
       delete contactData.customFields;
+    }
+    
+    // Remove empty firstName/lastName (they should be strings but empty strings are not useful)
+    if (contactData.firstName && contactData.firstName.trim() === '') {
+      delete contactData.firstName;
+    }
+    if (contactData.lastName && contactData.lastName.trim() === '') {
+      delete contactData.lastName;
     }
 
     logSuccess('SYNC_ATTEMPT', {
