@@ -259,6 +259,7 @@ async function syncToGHL(nubimedPayload) {
     if (patientData.appointmentDateText) {
       customFieldsArray.push({
         id: "VK7oRWrcyv0MtiLY0MJq", // fecha_ultima_cita_T (TEXT)
+        key: "contact.fecha_ultima_cita_t",
         field_value: patientData.appointmentDateText // "09/12/2025 a las 09:15"
       });
     }
@@ -267,6 +268,7 @@ async function syncToGHL(nubimedPayload) {
     if (patientData.appointmentDateISO) {
       customFieldsArray.push({
         id: "SogU2vTkISpnltBjY2K8", // fecha_ultima_cita (DATE)
+        key: "contact.fecha_ultima_cita",
         field_value: patientData.appointmentDateISO // "2025-12-09"
       });
     }
