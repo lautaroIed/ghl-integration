@@ -17,9 +17,14 @@ app.use(express.urlencoded({
 // Raw body parser as fallback
 app.use(express.raw({ type: 'application/json', limit: '10mb' }));
 
-const { logWebhook, logError, logSuccess } = require('./utils/logger');
+const { logWebhook, logError, logSuccess, logWarning } = require('./utils/logger');
 const { shouldProcessWebhook } = require('./utils/filter');
 const { syncToGHL } = require('./services/ghl-service');
+const { 
+  createOrUpdateAppointment, 
+  getExistingAppointmentId, 
+  updateContactAppointmentIds 
+} = require('./services/calendar-service');
 
 app.get('/', (req, res) => {
   res.json({
@@ -162,7 +167,55 @@ app.post('/webhook/nubimed', async (req, res) => {
       payload
     });
 
+    // Sync contact to GHL
     const result = await syncToGHL(payload);
+
+    // Handle calendar integration for new/updated bookings
+    const eventName = payload.name || '';
+    const contactId = payload.contact_id || result.contactId;
+
+    if (contactId && (eventName.includes('booking') || eventName.includes('cita'))) {
+      try {
+        // Extract Nubimed booking ID
+        const data = payload.data || payload;
+        const booking = data.booking || payload.appointment || payload;
+        const nubimedBookingId = booking.id || data.booking_id || payload.booking_id;
+
+        if (nubimedBookingId) {
+          // Try to get existing appointment ID from contact custom fields
+          const existingAppointmentId = await getExistingAppointmentId(contactId, nubimedBookingId);
+
+          // Create or update appointment in GHL calendar
+          const appointmentResult = await createOrUpdateAppointment(
+            payload, 
+            contactId, 
+            existingAppointmentId
+          );
+
+          // Update contact custom fields with appointment IDs
+          if (appointmentResult.success && appointmentResult.appointmentId) {
+            await updateContactAppointmentIds(
+              contactId,
+              nubimedBookingId,
+              appointmentResult.appointmentId
+            );
+          }
+
+          logSuccess('CALENDAR_SYNC_SUCCESS', {
+            contactId,
+            appointmentId: appointmentResult.appointmentId,
+            nubimedBookingId
+          });
+        }
+      } catch (calendarError) {
+        // Log calendar error but don't fail the webhook
+        logError('CALENDAR_SYNC_ERROR', {
+          error: calendarError.message,
+          stack: calendarError.stack,
+          contactId
+        });
+      }
+    }
 
     logSuccess('WEBHOOK_PROCESSED', {
       timestamp,
@@ -188,6 +241,121 @@ app.post('/webhook/nubimed', async (req, res) => {
     res.status(200).json({
       status: 'error',
       message: 'Webhook received but error occurred',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal error'
+    });
+  }
+});
+
+// Endpoint for deleted appointments (cita-eliminada)
+app.post('/webhook/nubimed/deleted', async (req, res) => {
+  const timestamp = new Date().toISOString();
+  let payload = req.body;
+  const headers = req.headers;
+  const contentType = headers['content-type'] || '';
+
+  try {
+    // Handle form-encoded data
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      if (payload.data && typeof payload.data === 'string') {
+        try {
+          payload = {
+            name: payload.name || 'cita_eliminada',
+            data: JSON.parse(payload.data),
+            contact_id: payload.contact_id
+          };
+        } catch (parseError) {
+          payload = {
+            name: payload.name || 'cita_eliminada',
+            data: payload.data,
+            contact_id: payload.contact_id
+          };
+        }
+      } else {
+        payload = {
+          name: payload.name || 'cita_eliminada',
+          data: payload.data,
+          contact_id: payload.contact_id
+        };
+      }
+    }
+
+    logWebhook('DELETED_APPOINTMENT_RECEIVED', {
+      timestamp,
+      payload
+    });
+
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid payload structure'
+      });
+    }
+
+    const contactId = payload.contact_id;
+    const data = payload.data || payload;
+    const booking = data.booking || payload.appointment || payload;
+    const nubimedBookingId = booking.id || data.booking_id || payload.booking_id;
+
+    if (!contactId || !nubimedBookingId) {
+      logError('MISSING_DELETE_PARAMS', {
+        contactId,
+        nubimedBookingId,
+        payload
+      });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Contact ID and booking ID are required'
+      });
+    }
+
+    // Get existing appointment ID from contact custom fields
+    const { 
+      getExistingAppointmentId, 
+      deleteAppointment, 
+      removeContactAppointmentIds 
+    } = require('./services/calendar-service');
+    const existingAppointmentId = await getExistingAppointmentId(contactId, nubimedBookingId);
+
+    if (existingAppointmentId) {
+      // Delete appointment from GHL calendar
+      const deleteResult = await deleteAppointment(existingAppointmentId);
+      
+      // Remove IDs from contact custom fields
+      await removeContactAppointmentIds(contactId, nubimedBookingId, existingAppointmentId);
+      
+      logSuccess('APPOINTMENT_DELETED_SUCCESS', {
+        contactId,
+        nubimedBookingId,
+        appointmentId: existingAppointmentId
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Appointment deleted successfully',
+        appointmentId: existingAppointmentId
+      });
+    } else {
+      logWarning('APPOINTMENT_NOT_FOUND_FOR_DELETE', {
+        contactId,
+        nubimedBookingId
+      });
+      return res.status(200).json({
+        status: 'ignored',
+        message: 'Appointment not found in GHL calendar'
+      });
+    }
+
+  } catch (error) {
+    logError('DELETE_APPOINTMENT_ERROR', {
+      timestamp,
+      error: error.message,
+      stack: error.stack,
+      payload
+    });
+
+    res.status(200).json({
+      status: 'error',
+      message: 'Error processing deleted appointment',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal error'
     });
   }

@@ -202,6 +202,51 @@ async function syncToGHL(nubimedPayload) {
       throw new Error('GHL_LOCATION_ID environment variable is required');
     }
 
+    // Check if contact_id is provided in payload (new format)
+    const providedContactId = nubimedPayload.contact_id;
+    
+    // If contact_id is provided, we can skip contact sync and return it
+    // But we still need to validate the contact exists
+    if (providedContactId) {
+      try {
+        // Verify contact exists
+        const verifyResponse = await fetch(
+          `${GHL_API_BASE}/contacts/${providedContactId}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${GHL_API_TOKEN}`,
+              'Version': '2021-07-28'
+            }
+          }
+        );
+
+        if (verifyResponse.ok) {
+          logSuccess('CONTACT_ID_PROVIDED', {
+            contactId: providedContactId,
+            verified: true
+          });
+          return {
+            success: true,
+            contactId: providedContactId,
+            isNew: false,
+            provided: true
+          };
+        } else {
+          logWarning('CONTACT_ID_NOT_FOUND', {
+            contactId: providedContactId,
+            status: verifyResponse.status
+          });
+          // Fall through to create/update contact
+        }
+      } catch (verifyError) {
+        logWarning('CONTACT_VERIFY_ERROR', {
+          error: verifyError.message,
+          contactId: providedContactId
+        });
+        // Fall through to create/update contact
+      }
+    }
+
     const patientData = extractPatientData(nubimedPayload);
     
     
