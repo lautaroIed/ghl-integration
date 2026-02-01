@@ -293,34 +293,54 @@ app.post('/webhook/nubimed/deleted', async (req, res) => {
 
     const contactId = payload.contact_id;
     const data = payload.data || payload;
-    const booking = data.booking || payload.appointment || payload;
-    const nubimedBookingId = booking.id || data.booking_id || payload.booking_id;
+    
+    // Handle different payload structures for deleted bookings
+    // Nubimed may send: deleted_booking_id, booking_id, or booking.id
+    const nubimedBookingId = 
+      data.deleted_booking_id || 
+      data.booking_id || 
+      payload.booking_id ||
+      payload.deleted_booking_id;
 
-    if (!contactId || !nubimedBookingId) {
-      logError('MISSING_DELETE_PARAMS', {
-        contactId,
+    // Validate required fields
+    if (!contactId) {
+      logError('MISSING_CONTACT_ID', {
         nubimedBookingId,
-        payload
+        payload,
+        message: 'Contact ID is required'
       });
       return res.status(400).json({
         status: 'error',
-        message: 'Contact ID and booking ID are required'
+        message: 'Contact ID is required'
       });
     }
 
-    // Get existing appointment ID from contact custom fields
+    if (!nubimedBookingId) {
+      logError('MISSING_BOOKING_ID', {
+        contactId,
+        payload,
+        message: 'Booking ID is required'
+      });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Booking ID is required'
+      });
+    }
+
+    // Get existing appointment ID from contact custom fields using contact_id
     const { 
       getExistingAppointmentId, 
       deleteAppointment, 
       removeContactAppointmentIds 
     } = require('./services/calendar-service');
+    
     const existingAppointmentId = await getExistingAppointmentId(contactId, nubimedBookingId);
 
     if (existingAppointmentId) {
-      // Delete appointment from GHL calendar
-      const deleteResult = await deleteAppointment(existingAppointmentId);
+      // Delete appointment from GHL calendar (only needs eventId, not contact_id)
+      await deleteAppointment(existingAppointmentId);
       
-      // Remove IDs from contact custom fields
+      // Remove IDs from contact custom fields using contact_id
       await removeContactAppointmentIds(contactId, nubimedBookingId, existingAppointmentId);
       
       logSuccess('APPOINTMENT_DELETED_SUCCESS', {
@@ -337,7 +357,8 @@ app.post('/webhook/nubimed/deleted', async (req, res) => {
     } else {
       logWarning('APPOINTMENT_NOT_FOUND_FOR_DELETE', {
         contactId,
-        nubimedBookingId
+        nubimedBookingId,
+        message: 'Appointment not found in contact custom fields'
       });
       return res.status(200).json({
         status: 'ignored',

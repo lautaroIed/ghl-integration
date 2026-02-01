@@ -815,6 +815,122 @@ async function removeContactAppointmentIds(contactId, nubimedBookingId, ghlAppoi
   }
 }
 
+/**
+ * Search for contact by Nubimed booking ID in custom fields
+ * This searches contacts that have the booking ID in their "Nubimed Booking IDs" field
+ * Since GHL API doesn't support searching by custom field value, we need to list contacts
+ * and check each one's custom fields. This is not ideal for large contact lists.
+ */
+async function searchContactByBookingId(nubimedBookingId) {
+  try {
+    if (!nubimedBookingId) {
+      return null;
+    }
+
+    const nubimedBookingIdStr = String(nubimedBookingId);
+    const GHL_API_BASE = process.env.GHL_API_BASE || 'https://services.leadconnectorhq.com';
+    const GHL_API_TOKEN = process.env.GHL_API_TOKEN;
+    const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID;
+    
+    if (!GHL_API_TOKEN || !GHL_LOCATION_ID) {
+      logError('MISSING_GHL_CONFIG', {
+        message: 'GHL API token or location ID not configured'
+      });
+      return null;
+    }
+
+    logWarning('SEARCHING_CONTACT_BY_BOOKING_ID', {
+      nubimedBookingId: nubimedBookingIdStr,
+      message: 'Searching contacts by booking ID in custom fields (may be slow for large contact lists)'
+    });
+
+    // Search contacts with pagination
+    // Limit to first 100 contacts to avoid performance issues
+    // In production, you might want to increase this or implement a more efficient caching mechanism
+    const limit = 100;
+    let skip = 0;
+    let foundContactId = null;
+
+    while (!foundContactId && skip < 1000) { // Max 1000 contacts to search
+      const response = await fetch(
+        `${GHL_API_BASE}/contacts/?locationId=${GHL_LOCATION_ID}&limit=${limit}&skip=${skip}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${GHL_API_TOKEN}`,
+            'Version': '2021-07-28'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        logError('CONTACT_LIST_ERROR', {
+          status: response.status,
+          statusText: response.statusText,
+          nubimedBookingId: nubimedBookingIdStr
+        });
+        break;
+      }
+
+      const result = await response.json();
+      const contacts = result.contacts || [];
+
+      if (contacts.length === 0) {
+        break; // No more contacts
+      }
+
+      // Check each contact's custom fields for the booking ID
+      for (const contact of contacts) {
+        const customFields = contact.customFields || [];
+        
+        // Find "Nubimed Booking IDs" field
+        const bookingIdsField = customFields.find(field => 
+          field.id === 'cp4F0qVNGNclyphsr5jk' || 
+          field.fieldKey === 'contact.nubimed_booking_id'
+        );
+
+        if (bookingIdsField) {
+          const bookingIdsValue = bookingIdsField.value || bookingIdsField.fieldValue || '';
+          const bookingIds = parseCommaSeparatedIds(bookingIdsValue);
+          
+          // Check if this contact has the booking ID
+          if (bookingIds.includes(nubimedBookingIdStr)) {
+            foundContactId = contact.id;
+            logSuccess('CONTACT_FOUND_BY_BOOKING_ID', {
+              contactId: foundContactId,
+              nubimedBookingId: nubimedBookingIdStr,
+              contactsSearched: skip + contacts.length
+            });
+            break;
+          }
+        }
+      }
+
+      if (foundContactId) {
+        break;
+      }
+
+      skip += limit;
+    }
+
+    if (!foundContactId) {
+      logWarning('CONTACT_NOT_FOUND_BY_BOOKING_ID', {
+        nubimedBookingId: nubimedBookingIdStr,
+        contactsSearched: skip,
+        message: 'Contact not found with this booking ID in custom fields'
+      });
+    }
+
+    return foundContactId;
+  } catch (error) {
+    logError('SEARCH_CONTACT_BY_BOOKING_ID_ERROR', {
+      error: error.message,
+      stack: error.stack,
+      nubimedBookingId
+    });
+    return null;
+  }
+}
+
 module.exports = {
   createOrUpdateAppointment,
   deleteAppointment,
@@ -823,6 +939,7 @@ module.exports = {
   removeContactAppointmentIds,
   extractAppointmentData,
   parseCommaSeparatedIds,
-  formatCommaSeparatedIds
+  formatCommaSeparatedIds,
+  searchContactByBookingId
 };
 
