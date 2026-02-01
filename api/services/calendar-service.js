@@ -401,10 +401,14 @@ async function getExistingAppointmentId(contactId, nubimedBookingId) {
     );
 
     if (appointmentIdsField && bookingIdsField && 
-        appointmentIdsField.fieldValue && bookingIdsField.fieldValue) {
+        (appointmentIdsField.value || appointmentIdsField.fieldValue) && 
+        (bookingIdsField.value || bookingIdsField.fieldValue)) {
       // Parse both fields as comma-separated
-      const appointmentIds = parseCommaSeparatedIds(appointmentIdsField.fieldValue);
-      const bookingIds = parseCommaSeparatedIds(bookingIdsField.fieldValue);
+      // GHL returns custom fields with "value" property, not "fieldValue"
+      const appointmentIdsValue = appointmentIdsField.value || appointmentIdsField.fieldValue || '';
+      const bookingIdsValue = bookingIdsField.value || bookingIdsField.fieldValue || '';
+      const appointmentIds = parseCommaSeparatedIds(appointmentIdsValue);
+      const bookingIds = parseCommaSeparatedIds(bookingIdsValue);
       
       // Find index of nubimedBookingId in bookingIds array
       const bookingIndex = bookingIds.indexOf(String(nubimedBookingId));
@@ -474,12 +478,11 @@ async function updateContactAppointmentIds(contactId, nubimedBookingId, ghlAppoi
     );
 
     // Parse existing IDs as comma-separated arrays
-    let appointmentIds = parseCommaSeparatedIds(
-      appointmentIdsField?.fieldValue || ''
-    );
-    let bookingIds = parseCommaSeparatedIds(
-      bookingIdsField?.fieldValue || ''
-    );
+    // GHL returns custom fields with "value" property, not "fieldValue"
+    const appointmentIdsValue = appointmentIdsField?.value || appointmentIdsField?.fieldValue || '';
+    const bookingIdsValue = bookingIdsField?.value || bookingIdsField?.fieldValue || '';
+    let appointmentIds = parseCommaSeparatedIds(appointmentIdsValue);
+    let bookingIds = parseCommaSeparatedIds(bookingIdsValue);
 
     const nubimedBookingIdStr = String(nubimedBookingId);
     const ghlAppointmentIdStr = String(ghlAppointmentId);
@@ -513,8 +516,8 @@ async function updateContactAppointmentIds(contactId, nubimedBookingId, ghlAppoi
     const bookingIdsStr = formatCommaSeparatedIds(bookingIds);
 
     // Update contact with new custom field values
+    // Note: locationId should NOT be included in PUT /contacts/{contactId} payload
     const updatePayload = {
-      locationId: GHL_LOCATION_ID,
       customFields: [
         {
           id: 'sDiKLOU2RCLGSGubvImI', // Appointment IDs (comma-separated)
@@ -613,12 +616,11 @@ async function removeContactAppointmentIds(contactId, nubimedBookingId, ghlAppoi
     );
 
     // Parse existing IDs as comma-separated arrays
-    let appointmentIds = parseCommaSeparatedIds(
-      appointmentIdsField?.fieldValue || ''
-    );
-    let bookingIds = parseCommaSeparatedIds(
-      bookingIdsField?.fieldValue || ''
-    );
+    // GHL returns custom fields with "value" property, not "fieldValue"
+    const appointmentIdsValue = appointmentIdsField?.value || appointmentIdsField?.fieldValue || '';
+    const bookingIdsValue = bookingIdsField?.value || bookingIdsField?.fieldValue || '';
+    let appointmentIds = parseCommaSeparatedIds(appointmentIdsValue);
+    let bookingIds = parseCommaSeparatedIds(bookingIdsValue);
 
     const nubimedBookingIdStr = String(nubimedBookingId);
 
@@ -637,8 +639,8 @@ async function removeContactAppointmentIds(contactId, nubimedBookingId, ghlAppoi
       const bookingIdsStr = formatCommaSeparatedIds(bookingIds);
 
       // Update contact with new custom field values
+      // Note: locationId should NOT be included in PUT /contacts/{contactId} payload
       const updatePayload = {
-        locationId: GHL_LOCATION_ID,
         customFields: [
           {
             id: 'sDiKLOU2RCLGSGubvImI', // Appointment IDs (comma-separated)
