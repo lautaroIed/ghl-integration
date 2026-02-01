@@ -108,6 +108,7 @@ async function createOrUpdateAppointment(nubimedPayload, contactId, existingAppo
     }
 
     // Build appointment data for GHL
+    // Required fields: locationId, calendarId, contactId, assignedUserId, title, startTime, endTime
     const appointmentPayload = {
       locationId: GHL_LOCATION_ID,
       calendarId: GHL_CALENDAR_ID,
@@ -116,8 +117,14 @@ async function createOrUpdateAppointment(nubimedPayload, contactId, existingAppo
       title: title,
       startTime: startDate,
       endTime: endDate,
-      notes: appointmentData.comment || undefined
+      appointmentStatus: "confirmed",
+      ignoreFreeSlotValidation: true  // Ignore slot availability validation
     };
+    
+    // Optional fields (only add if they have values)
+    if (appointmentData.comment && appointmentData.comment.trim()) {
+      appointmentPayload.notes = appointmentData.comment;
+    }
 
     // Remove undefined fields
     Object.keys(appointmentPayload).forEach(key => {
