@@ -123,7 +123,7 @@ async function createOrUpdateAppointment(nubimedPayload, contactId, existingAppo
     
     // Optional fields (only add if they have values)
     if (appointmentData.comment && appointmentData.comment.trim()) {
-      appointmentPayload.notes = appointmentData.comment;
+      appointmentPayload.description = appointmentData.comment;
     }
 
     // Remove undefined fields
