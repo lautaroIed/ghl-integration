@@ -57,7 +57,9 @@ function extractAppointmentData(payload) {
 }
 
 /**
- * Format date for GHL API (ISO 8601 format)
+ * Format date for GHL API (ISO 8601 format in Europe/Madrid timezone)
+ * Nubimed sends dates with timezone offset (e.g., "2026-02-12T17:30:00+01:00")
+ * We convert to Madrid timezone and format as ISO 8601 with correct offset
  */
 function formatDateForGHL(date) {
   if (!date) return null;
@@ -65,8 +67,55 @@ function formatDateForGHL(date) {
   const d = new Date(date);
   if (isNaN(d.getTime())) return null;
   
-  // Return ISO 8601 format
-  return d.toISOString();
+  // Get date/time components in Madrid timezone (Europe/Madrid)
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  const parts = formatter.formatToParts(d);
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+  const hours = parts.find(p => p.type === 'hour').value;
+  const minutes = parts.find(p => p.type === 'minute').value;
+  const seconds = parts.find(p => p.type === 'second').value;
+  
+  // Calculate Madrid timezone offset for this specific date
+  // Compare UTC time with Madrid local time
+  const utcHours = d.getUTCHours();
+  const utcMinutes = d.getUTCMinutes();
+  const madridHours = parseInt(hours);
+  const madridMinutes = parseInt(minutes);
+  
+  // Calculate offset: difference between Madrid time and UTC time
+  let offsetHours = madridHours - utcHours;
+  let offsetMinutes = madridMinutes - utcMinutes;
+  
+  // Handle day boundary crossing
+  if (offsetHours > 12) offsetHours -= 24;
+  if (offsetHours < -12) offsetHours += 24;
+  
+  // Normalize minutes
+  if (offsetMinutes >= 60) {
+    offsetHours += 1;
+    offsetMinutes -= 60;
+  } else if (offsetMinutes < 0) {
+    offsetHours -= 1;
+    offsetMinutes += 60;
+  }
+  
+  const offsetSign = offsetHours >= 0 ? '+' : '-';
+  const offsetStr = `${offsetSign}${String(Math.abs(offsetHours)).padStart(2, '0')}:${String(Math.abs(offsetMinutes)).padStart(2, '0')}`;
+  
+  // Return ISO 8601 format with Madrid timezone offset
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${offsetStr}`;
 }
 
 /**
