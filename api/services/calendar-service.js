@@ -142,9 +142,77 @@ async function createOrUpdateAppointment(nubimedPayload, contactId, existingAppo
     let response;
     let result;
 
-    // If we have an existing appointment ID, try to update it
+    // If we have an existing appointment ID, check if update is needed
     if (existingAppointmentId) {
       try {
+        // First, get the existing appointment to compare data
+        const getResponse = await fetch(`${GHL_API_BASE}/calendars/events/appointments/${existingAppointmentId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${GHL_API_TOKEN}`,
+            'Version': '2021-07-28'
+          }
+        });
+
+        if (getResponse.ok) {
+          const getResponseText = await getResponse.text();
+          let existingAppointment;
+          try {
+            existingAppointment = JSON.parse(getResponseText);
+          } catch (e) {
+            throw new Error(`Invalid JSON response when getting appointment: ${getResponseText}`);
+          }
+          
+          // According to GHL API docs: GET /calendars/events/appointments/:eventId
+          // Response structure may vary, try multiple possible paths
+          const existing = existingAppointment.appointment || existingAppointment.event || existingAppointment;
+          
+          // Compare key fields to see if update is needed
+          // GHL API returns startTime/endTime in ISO format
+          const existingStartTime = existing.startTime || existing.start_at || existing.startDate;
+          const existingEndTime = existing.endTime || existing.end_at || existing.endDate;
+          const existingTitle = existing.title || '';
+          const existingDescription = existing.description || existing.notes || '';
+          
+          const newStartTime = appointmentPayload.startTime;
+          const newEndTime = appointmentPayload.endTime;
+          const newTitle = appointmentPayload.title;
+          const newDescription = appointmentPayload.description || '';
+          
+          // Check if data actually changed
+          const hasChanges = 
+            existingStartTime !== newStartTime ||
+            existingEndTime !== newEndTime ||
+            existingTitle !== newTitle ||
+            existingDescription !== newDescription;
+          
+          if (!hasChanges) {
+            logSuccess('APPOINTMENT_NO_CHANGES', {
+              appointmentId: existingAppointmentId,
+              nubimedBookingId: appointmentData.nubimedBookingId,
+              message: 'Appointment data unchanged, skipping update'
+            });
+            return {
+              success: true,
+              appointmentId: existingAppointmentId,
+              nubimedBookingId: appointmentData.nubimedBookingId,
+              action: 'no_changes'
+            };
+          }
+          
+          logSuccess('APPOINTMENT_HAS_CHANGES', {
+            appointmentId: existingAppointmentId,
+            nubimedBookingId: appointmentData.nubimedBookingId,
+            changes: {
+              startTime: existingStartTime !== newStartTime,
+              endTime: existingEndTime !== newEndTime,
+              title: existingTitle !== newTitle,
+              description: existingDescription !== newDescription
+            }
+          });
+        }
+        
+        // Proceed with update
         response = await fetch(`${GHL_API_BASE}/calendars/events/appointments/${existingAppointmentId}`, {
           method: 'PUT',
           headers: {
