@@ -64,6 +64,90 @@ function formatDateForGHL(date) {
   return formatDateForText(date);
 }
 
+/**
+ * Normalize country name to ISO 3166-1 alpha-2 code (2 letters uppercase)
+ * GHL API requires ISO country codes, not country names
+ * @param {string} country - Country name or code from Nubimed
+ * @returns {string} - ISO 3166-1 alpha-2 code (e.g., "ES", "US", "MX")
+ */
+function normalizeCountryCode(country) {
+  if (!country || typeof country !== 'string') {
+    return 'ES'; // Default to Spain
+  }
+
+  // Normalize: trim whitespace and convert to lowercase
+  const normalized = country.trim().toLowerCase();
+
+  // If already a valid 2-letter code (case-insensitive), return uppercase
+  if (/^[a-z]{2}$/i.test(normalized)) {
+    return normalized.toUpperCase();
+  }
+
+  // Map common country names to ISO codes
+  // Focus on countries that might come from Nubimed (Spanish-speaking countries)
+  const countryMap = {
+    // Spain variations
+    'españa': 'ES',
+    'espana': 'ES', // without ñ
+    'spain': 'ES',
+    // Other common countries
+    'méxico': 'MX',
+    'mexico': 'MX',
+    'méjico': 'MX',
+    'mejico': 'MX',
+    'colombia': 'CO',
+    'argentina': 'AR',
+    'chile': 'CL',
+    'perú': 'PE',
+    'peru': 'PE',
+    'venezuela': 'VE',
+    'ecuador': 'EC',
+    'guatemala': 'GT',
+    'cuba': 'CU',
+    'bolivia': 'BO',
+    'república dominicana': 'DO',
+    'republica dominicana': 'DO',
+    'honduras': 'HN',
+    'paraguay': 'PY',
+    'nicaragua': 'NI',
+    'el salvador': 'SV',
+    'costa rica': 'CR',
+    'panamá': 'PA',
+    'panama': 'PA',
+    'uruguay': 'UY',
+    'portugal': 'PT',
+    'brasil': 'BR',
+    'brazil': 'BR',
+    'estados unidos': 'US',
+    'united states': 'US',
+    'usa': 'US',
+    'reino unido': 'GB',
+    'united kingdom': 'GB',
+    'uk': 'GB',
+    'francia': 'FR',
+    'france': 'FR',
+    'italia': 'IT',
+    'italy': 'IT',
+    'alemania': 'DE',
+    'germany': 'DE',
+  };
+
+  // Check if normalized country name exists in map
+  if (countryMap[normalized]) {
+    return countryMap[normalized];
+  }
+
+  // If not found, default to ES (Spain) since all patients seem to be from Spain
+  // Log a warning for debugging
+  logWarning('COUNTRY_NOT_MAPPED', {
+    original: country,
+    normalized: normalized,
+    defaultingTo: 'ES'
+  });
+
+  return 'ES';
+}
+
 function extractPatientData(payload) {
   const data = payload.data || payload;
   const booking = data.booking || payload.appointment || payload;
@@ -335,11 +419,9 @@ async function syncToGHL(nubimedPayload) {
       contactData.postalCode = patientData.postalCode;
     }
     if (patientData.country) {
-      // Convert country name to country code if needed
-      let countryCode = patientData.country;
-      if (patientData.country === 'España' || patientData.country === 'ESPAÑA') {
-        countryCode = 'ES';
-      }
+      // Normalize country to ISO 3166-1 alpha-2 code (required by GHL API)
+      // This handles all variations: "españa", "España", "ESPAÑA", "ES", etc.
+      const countryCode = normalizeCountryCode(patientData.country);
       contactData.country = countryCode;
     }
     
